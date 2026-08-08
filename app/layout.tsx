@@ -3,8 +3,20 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://expense-tracking-mu-ten.vercel.app"),
   title: "Expense Tracker",
   description: "Log transport and entertainment claims in minutes, not hours",
+  openGraph: {
+    title: "Expense Tracker",
+    description: "Transport & entertainment claims logged in minutes — not hours.",
+    images: [{ url: "/thumbnail.png", width: 2400, height: 1260 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Expense Tracker",
+    description: "Transport & entertainment claims logged in minutes — not hours.",
+    images: ["/thumbnail.png"],
+  },
 };
 
 export default function RootLayout({
