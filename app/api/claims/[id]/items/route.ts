@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { recomputeClaimTotal, writeAudit } from "@/lib/expense/server";
+import { autoTagVendor } from "@/lib/expense/autoTag";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       currency: claim.currency,
       purpose: purpose?.trim() || "",
       receipt_status: receipt_status || "none",
+      ...autoTagVendor(vendor, category),
     })
     .select()
     .single();

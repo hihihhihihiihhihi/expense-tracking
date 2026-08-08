@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney, formatDate, todayISO } from "@/lib/expense/format";
-import type { Category, ExpenseClaim, LineItem } from "@/lib/expense/types";
+import type { Category, ClaimSummary, ExpenseClaim, LineItem } from "@/lib/expense/types";
 
 const inputCls =
   "w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-neutral-100";
@@ -43,6 +43,8 @@ export default function ClaimDetail({
   const [editDraft, setEditDraft] = useState<ItemDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<ClaimSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   const readonly = claim.status === "finalized";
 
@@ -82,6 +84,7 @@ export default function ClaimDetail({
       setItems((prev) => [...prev, data.item]);
       setClaim((prev) => ({ ...prev, grand_total: data.grand_total }));
       setDraft((prev) => ({ ...emptyDraft(prev.date), date: prev.date }));
+      setSummary(null);
       router.refresh();
     }
   }
@@ -109,6 +112,7 @@ export default function ClaimDetail({
       setClaim((prev) => ({ ...prev, grand_total: data.grand_total }));
       setEditingId(null);
       setEditDraft(null);
+      setSummary(null);
       router.refresh();
     }
   }
@@ -120,6 +124,7 @@ export default function ClaimDetail({
     if (data) {
       setItems((prev) => prev.filter((it) => it.id !== item.id));
       setClaim((prev) => ({ ...prev, grand_total: data.grand_total }));
+      setSummary(null);
       router.refresh();
     }
   }
@@ -134,6 +139,21 @@ export default function ClaimDetail({
     if (data) {
       setClaim(data.claim);
       router.refresh();
+    }
+  }
+
+  async function generateSummary() {
+    setSummaryLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/claims/${claim.id}/summary`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate summary");
+      setSummary(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate summary");
+    } finally {
+      setSummaryLoading(false);
     }
   }
 
@@ -171,7 +191,22 @@ export default function ClaimDetail({
               {claim.categories.join(" + ")}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={generateSummary}
+              disabled={summaryLoading || items.length === 0}
+              className="rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              title={items.length === 0 ? "Add line items first" : undefined}
+            >
+              {summaryLoading ? "Generating…" : "Generate Summary"}
+            </button>
+            <a
+              href={`/api/claims/${claim.id}/export`}
+              download
+              className={`rounded-lg border border-indigo-300 text-indigo-700 px-3 py-1.5 text-sm font-medium hover:bg-indigo-50 ${items.length === 0 ? "pointer-events-none opacity-50" : ""}`}
+            >
+              Export CSV
+            </a>
             {readonly ? (
               <button
                 onClick={() => setStatus("draft")}
@@ -351,6 +386,14 @@ export default function ClaimDetail({
                     <td className="px-3 py-2 font-medium">{item.vendor}</td>
                     <td className="px-3 py-2">
                       <CategoryChip category={item.category} />
+                      {item.ai_category_review === "needs_review" && (
+                        <span
+                          className="ml-1.5 text-xs text-amber-600"
+                          title={`Auto-tag suggests "${item.ai_category_tag}" for this vendor — double-check the category`}
+                        >
+                          ⚠ review
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {formatMoney(Number(item.amount), item.currency)}
@@ -471,6 +514,88 @@ export default function ClaimDetail({
           </form>
         )}
       </div>
+
+      {/* Summary report */}
+      {summary && (
+        <div id="summary" className="rounded-lg border border-indigo-200 bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b border-indigo-100 bg-indigo-50/50 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-semibold text-indigo-900">Summary Report</h2>
+              <p className="text-xs text-indigo-400 mt-0.5">
+                {summary.claim.title} · {formatDate(summary.claim.period_start)} –{" "}
+                {formatDate(summary.claim.period_end)} · generated{" "}
+                {new Date(summary.generated_at).toLocaleString("en-SG")}
+              </p>
+            </div>
+            <a
+              href={`/api/claims/${claim.id}/export`}
+              download
+              className="rounded-lg bg-indigo-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-indigo-700"
+            >
+              Download CSV
+            </a>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-neutral-500 border-b border-neutral-200">
+                  <th className="px-3 py-2 font-medium">Date</th>
+                  <th className="px-3 py-2 font-medium">Vendor</th>
+                  <th className="px-3 py-2 font-medium">Category</th>
+                  <th className="px-3 py-2 font-medium">Purpose</th>
+                  <th className="px-3 py-2 font-medium">Receipt</th>
+                  <th className="px-3 py-2 font-medium text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.items.map((item) => (
+                  <tr key={item.id} className="border-b border-neutral-100">
+                    <td className="px-3 py-1.5 whitespace-nowrap">{formatDate(item.date)}</td>
+                    <td className="px-3 py-1.5 font-medium">{item.vendor}</td>
+                    <td className="px-3 py-1.5">
+                      <CategoryChip category={item.category} />
+                    </td>
+                    <td className="px-3 py-1.5 text-neutral-500">{item.purpose}</td>
+                    <td className="px-3 py-1.5">
+                      <ReceiptChip status={item.receipt_status} />
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {formatMoney(Number(item.amount), item.currency)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-neutral-200">
+                  <td colSpan={5} className="px-3 py-1.5 text-right text-neutral-500">
+                    Transport subtotal
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">
+                    {formatMoney(summary.subtotals.transport, summary.claim.currency)}
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={5} className="px-3 py-1.5 text-right text-neutral-500">
+                    Entertainment subtotal
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">
+                    {formatMoney(summary.subtotals.entertainment, summary.claim.currency)}
+                  </td>
+                </tr>
+                <tr className="border-t-2 border-indigo-200 bg-indigo-50/50">
+                  <td colSpan={5} className="px-3 py-2 text-right font-semibold text-indigo-900">
+                    Grand total ({summary.item_count} item{summary.item_count === 1 ? "" : "s"})
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-bold text-indigo-700">
+                    {formatMoney(summary.grand_total, summary.claim.currency)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { recomputeClaimTotal, writeAudit } from "@/lib/expense/server";
+import { autoTagVendor } from "@/lib/expense/autoTag";
+import type { Category } from "@/lib/expense/types";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -47,6 +49,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if ("receipt_status" in patch && !RECEIPT_STATUSES.includes(patch.receipt_status as string))
     return NextResponse.json({ error: "Invalid receipt_status" }, { status: 400 });
   if ("vendor" in patch) patch.vendor = (patch.vendor as string).trim();
+
+  // Re-run auto-tag when vendor or category changes
+  if ("vendor" in patch || "category" in patch) {
+    const vendor = (patch.vendor as string) ?? item.vendor;
+    const category = (patch.category as Category) ?? item.category;
+    Object.assign(patch, autoTagVendor(vendor, category));
+  }
 
   const { data: updated, error } = await supabase
     .from("line_items")
