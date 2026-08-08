@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formatMoney, formatDate } from "@/lib/expense/format";
 import type { ExpenseClaim } from "@/lib/expense/types";
 import NewClaimForm from "./components/NewClaimForm";
+import DuplicateClaimButton from "./components/DuplicateClaimButton";
 
 export const dynamic = "force-dynamic";
 
@@ -64,11 +65,14 @@ export default async function Home() {
                         {itemCount} item{itemCount === 1 ? "" : "s"}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-semibold tabular-nums">
-                        {formatMoney(Number(claim.grand_total), claim.currency)}
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <div className="text-lg font-semibold tabular-nums">
+                          {formatMoney(Number(claim.grand_total), claim.currency)}
+                        </div>
+                        <div className="text-xs text-neutral-400">grand total</div>
                       </div>
-                      <div className="text-xs text-neutral-400">grand total</div>
+                      <DuplicateClaimButton claimId={claim.id} />
                     </div>
                   </div>
                 </Link>

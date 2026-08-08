@@ -28,6 +28,14 @@ export default async function ClaimPage({
     .order("date", { ascending: true })
     .order("created_at", { ascending: true });
 
+  // Vendor history for autocomplete, most recent first
+  const { data: vendorRows } = await supabase
+    .from("line_items")
+    .select("vendor")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  const vendors = [...new Set((vendorRows ?? []).map((r) => r.vendor as string))];
+
   return (
     <div className="space-y-4">
       <Link
@@ -39,6 +47,7 @@ export default async function ClaimPage({
       <ClaimDetail
         initialClaim={claim as ExpenseClaim}
         initialItems={(items ?? []) as LineItem[]}
+        vendors={vendors}
       />
     </div>
   );

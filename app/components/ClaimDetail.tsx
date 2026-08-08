@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney, formatDate, todayISO } from "@/lib/expense/format";
 import type { Category, ClaimSummary, ExpenseClaim, LineItem } from "@/lib/expense/types";
+import ConfirmDialog, { type ConfirmState } from "./ConfirmDialog";
 
 const inputCls =
   "w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-neutral-100";
@@ -29,9 +30,11 @@ const emptyDraft = (date: string): ItemDraft => ({
 export default function ClaimDetail({
   initialClaim,
   initialItems,
+  vendors = [],
 }: {
   initialClaim: ExpenseClaim;
   initialItems: LineItem[];
+  vendors?: string[];
 }) {
   const router = useRouter();
   const [claim, setClaim] = useState(initialClaim);
@@ -45,6 +48,7 @@ export default function ClaimDetail({
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ClaimSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   const readonly = claim.status === "finalized";
 
@@ -117,21 +121,24 @@ export default function ClaimDetail({
     }
   }
 
-  async function deleteItem(item: LineItem) {
-    if (!confirm(`Delete ${item.vendor} — ${formatMoney(Number(item.amount), item.currency)}?`))
-      return;
-    const data = await api(`/api/items/${item.id}`, { method: "DELETE" });
-    if (data) {
-      setItems((prev) => prev.filter((it) => it.id !== item.id));
-      setClaim((prev) => ({ ...prev, grand_total: data.grand_total }));
-      setSummary(null);
-      router.refresh();
-    }
+  function deleteItem(item: LineItem) {
+    setConfirmState({
+      message: `Delete ${item.vendor} — ${formatMoney(Number(item.amount), item.currency)}?`,
+      confirmLabel: "Delete item",
+      danger: true,
+      onConfirm: async () => {
+        const data = await api(`/api/items/${item.id}`, { method: "DELETE" });
+        if (data) {
+          setItems((prev) => prev.filter((it) => it.id !== item.id));
+          setClaim((prev) => ({ ...prev, grand_total: data.grand_total }));
+          setSummary(null);
+          router.refresh();
+        }
+      },
+    });
   }
 
-  async function setStatus(status: "draft" | "finalized") {
-    if (status === "finalized" && !confirm("Finalize this claim? Items become read-only."))
-      return;
+  async function applyStatus(status: "draft" | "finalized") {
     const data = await api(`/api/claims/${claim.id}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
@@ -139,6 +146,18 @@ export default function ClaimDetail({
     if (data) {
       setClaim(data.claim);
       router.refresh();
+    }
+  }
+
+  function setStatus(status: "draft" | "finalized") {
+    if (status === "finalized") {
+      setConfirmState({
+        message: "Finalize this claim? Items become read-only until you revert to draft.",
+        confirmLabel: "Finalize",
+        onConfirm: () => void applyStatus(status),
+      });
+    } else {
+      void applyStatus(status);
     }
   }
 
@@ -157,18 +176,29 @@ export default function ClaimDetail({
     }
   }
 
-  async function deleteClaim() {
-    if (!confirm(`Delete claim "${claim.title}" and all its items? This cannot be undone.`))
-      return;
-    const data = await api(`/api/claims/${claim.id}`, { method: "DELETE" });
-    if (data) {
-      router.push("/");
-      router.refresh();
-    }
+  function deleteClaim() {
+    setConfirmState({
+      message: `Delete claim "${claim.title}" and all its items? This cannot be undone.`,
+      confirmLabel: "Delete claim",
+      danger: true,
+      onConfirm: async () => {
+        const data = await api(`/api/claims/${claim.id}`, { method: "DELETE" });
+        if (data) {
+          router.push("/");
+          router.refresh();
+        }
+      },
+    });
   }
 
   return (
     <div className="space-y-5">
+      <datalist id="vendor-history">
+        {vendors.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <ConfirmDialog state={confirmState} onClose={() => setConfirmState(null)} />
       {/* Header */}
       <div className="rounded-lg border border-neutral-200 bg-white p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -279,7 +309,7 @@ export default function ClaimDetail({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[700px] text-sm">
             <thead>
               <tr className="text-left text-xs text-neutral-500 border-b border-neutral-200 bg-neutral-50">
                 <th className="px-3 py-2 font-medium">Date</th>
@@ -313,6 +343,7 @@ export default function ClaimDetail({
                     <td className="px-2 py-1.5">
                       <input
                         type="text"
+                        list="vendor-history"
                         value={editDraft.vendor}
                         onChange={(e) => setEditDraft({ ...editDraft, vendor: e.target.value })}
                         className={inputCls}
@@ -452,6 +483,7 @@ export default function ClaimDetail({
               <input
                 type="text"
                 required
+                list="vendor-history"
                 placeholder="Grab, SMRT…"
                 value={draft.vendor}
                 onChange={(e) => setDraft({ ...draft, vendor: e.target.value })}
@@ -537,7 +569,7 @@ export default function ClaimDetail({
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[700px] text-sm">
               <thead>
                 <tr className="text-left text-xs text-neutral-500 border-b border-neutral-200">
                   <th className="px-3 py-2 font-medium">Date</th>
